@@ -6,3 +6,4 @@ flask>=2.0.0
 flask-cors>=3.0.10
 firebase-admin>=5.0.0
 streamlit
+protobuf~=3.19.0
