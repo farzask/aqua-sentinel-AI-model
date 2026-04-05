@@ -138,7 +138,7 @@ def _build_listener(ann_model, scaler):
         try:
 
             if ph >= 14.0 and ph <= 1.0 or tds >= 1.0 and tds <= 52000.0 or turbidity <= 10.0 and turbidity >= 1.0:
-                if ph >= 3 or ph <= 12 or turbidity > 5:
+                if ph <= 3 or ph >= 12 or turbidity > 5:
                     potability = 0
                     prob_potable = 0
                     prob_unsafe = 1
