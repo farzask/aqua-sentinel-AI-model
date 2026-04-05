@@ -239,7 +239,7 @@ with st.form("prediction_form"):
 
 if submitted:
     if ph_ui >= 14.0 and ph_ui <= 1.0 or tds_ui >= 1.0 and tds_ui <= 52000.0 or turbidity_ui <= 10.0 and turbidity_ui >= 1.0:
-        if ph_ui >= 3 or ph_ui <= 12 or turbidity_ui > 5:
+        if ph_ui <= 3 or ph_ui >= 12 or turbidity_ui > 5:
             potability = 0
             prob_potable = 0
             prob_unsafe = 1
