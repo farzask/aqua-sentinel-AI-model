@@ -41,7 +41,7 @@ try:
         secret_dict = json.loads(st.secrets["firebase_service_account"])
         cred = credentials.Certificate(secret_dict)
         firebase_admin.initialize_app(cred, {
-            'databaseURL': 'https://aqua-sentinel-90685.firebaseio.com'
+            'databaseURL': 'https://aqua-sentinel-90685-default-rtdb.firebaseio.com/'
         })
     firebase_initialized = True
 except Exception as e:
@@ -247,7 +247,7 @@ if submitted:
             potability, prob_potable, prob_unsafe = run_prediction(
                 ann_model, scaler, ph_ui, tds_ui, turbidity_ui
             )
-            
+
     if potability == 1:
         st.success("Water is POTABLE (Safe to drink)")
     else:
