@@ -110,7 +110,7 @@ def run_prediction(ann_model, scaler, ph, tds, turbidity):
     tds is mapped to the 'Solids' feature expected by the model.
     """
     print(f"[DEBUG] Running prediction with pH={ph}, TDS={tds}, Turbidity={turbidity}")
-    input_data = np.array([[ph, tds, turbidity]])
+    input_data = pd.DataFrame([[ph, tds, turbidity]], columns=features)
     input_scaled = scaler.transform(input_data)
 
     prediction = int(ann_model.predict(input_scaled)[0])
@@ -233,10 +233,6 @@ start_listener(ann_model, scaler)
 
 # ── Section 1: Live Firebase sensor display ──────────────────────────────────
 st.header("Live Sensor Prediction (Firebase)")
-st.caption(
-    "The listener runs in the background. Whenever `ph`, `tds`, or `turbidity` "
-    "changes in `sensors/`, the model predicts and writes `sensors/potability` (1 or 0)."
-)
 
 if st.button("Refresh"):
     st.rerun()
@@ -265,7 +261,6 @@ st.divider()
 
 # ── Section 2: Manual UI prediction (not saved to Firebase) ──────────────────
 st.header("Manual Prediction (UI only)")
-st.write("Results are displayed here only and are **not** saved to Firebase.")
 
 with st.form("prediction_form"):
     ph_ui = st.number_input("pH", min_value=0.0, max_value=14.0, value=7.0, step=0.01)
