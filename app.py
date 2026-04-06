@@ -39,7 +39,8 @@ firebase_initialized = False
 try:
     print("[DEBUG] Attempting Firebase initialization...")
     if not firebase_admin._apps:
-        secret_dict = json.loads(st.secrets["firebase_service_account"])
+        with open('aqua-sentinel-90685-firebase-adminsdk-fbsvc-bd6f9aeb57.json') as f:
+            secret_dict = json.load(f)
         cred = credentials.Certificate(secret_dict)
         firebase_admin.initialize_app(cred, {
             'databaseURL': 'https://aqua-sentinel-90685-default-rtdb.firebaseio.com/'
@@ -161,19 +162,30 @@ def _build_listener(ann_model, scaler):
         # Predict
         try:
             print("[DEBUG] Checking validation rules...")
-            if ph >= 14.0 and ph <= 1.0 or tds >= 1.0 and tds <= 52000.0 or turbidity <= 10.0 and turbidity >= 1.0:
-                print("[DEBUG] Input values within acceptable range")
-                if ph <= 3 or ph >= 12 or turbidity > 5:
-                    print("[DEBUG] Failed quality checks - setting potability to 0")
-                    potability = 0
-                    prob_potable = 0
-                    prob_unsafe = 1
-                else:
-                    print("[DEBUG] Passed quality checks - running ANN prediction")
-                    potability, prob_potable, prob_unsafe = run_prediction(
-                ann_model, scaler, ph, tds, turbidity
+            potability = None
+            prob_potable = None
+            prob_unsafe = None
+            
+            # Validate input ranges
+            ph_valid = 0.0 <= ph <= 14.0
+            tds_valid = 0.0 <= tds <= 52000.0
+            turbidity_valid = 0.0 <= turbidity <= 10.0
+            
+            if not (ph_valid and tds_valid and turbidity_valid):
+                print("[DEBUG] Input values out of valid range")
+                potability = 0
+                prob_potable = 0
+                prob_unsafe = 1
+            elif ph <= 3 or ph >= 12 or turbidity > 5:
+                print("[DEBUG] Failed quality checks - setting potability to 0")
+                potability = 0
+                prob_potable = 0
+                prob_unsafe = 1
+            else:
+                print("[DEBUG] Passed quality checks - running ANN prediction")
+                potability, prob_potable, prob_unsafe = run_prediction(
+                    ann_model, scaler, ph, tds, turbidity
                 )
-
             
         except Exception as exc:
             print(f"[DEBUG] Prediction error: {exc}")
@@ -214,22 +226,31 @@ def start_listener(_ann_model, _scaler):
         print("[DEBUG] Firebase not initialized, cannot start listener")
         return None
     try:
+        print("[DEBUG] Building listener callback...")
         callback = _build_listener(_ann_model, _scaler)
+        print("[DEBUG] Setting up Firebase reference and listener...")
         handle = db.reference('sensors').listen(callback)
         print("[DEBUG] Firebase listener started successfully")
         return handle
     except Exception as e:
         print(f"[DEBUG] Error starting listener: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
 # ── Streamlit UI ─────────────────────────────────────────────────────────────
+print("[DEBUG] Starting Streamlit UI initialization...")
 st.title("AquaSentinel - Water Potability Predictor")
+print("[DEBUG] Loading model...")
 
 ann_model, scaler = load_model()
+print("[DEBUG] Model loaded successfully")
 
 # Start the real-time listener (no-op if already running)
+print("[DEBUG] About to start listener...")
 start_listener(ann_model, scaler)
+print("[DEBUG] Listener started (or attempted)")
 
 # ── Section 1: Live Firebase sensor display ──────────────────────────────────
 st.header("Live Sensor Prediction (Firebase)")
@@ -270,17 +291,22 @@ with st.form("prediction_form"):
 
 if submitted:
     print(f"[DEBUG] Manual prediction submitted - pH: {ph_ui}, TDS: {tds_ui}, Turbidity: {turbidity_ui}")
-    if ph_ui >= 14.0 and ph_ui <= 1.0 or tds_ui >= 1.0 and tds_ui <= 52000.0 or turbidity_ui <= 10.0 and turbidity_ui >= 1.0:
-        if ph_ui <= 3 or ph_ui >= 12 or turbidity_ui > 5:
-            print("[DEBUG] Manual prediction: Failed quality checks")
-            potability = 0
-            prob_potable = 0
-            prob_unsafe = 1
-        else:
-            print("[DEBUG] Manual prediction: Passed quality checks, running ANN")
-            potability, prob_potable, prob_unsafe = run_prediction(
-                ann_model, scaler, ph_ui, tds_ui, turbidity_ui
-            )
+
+    ph_valid = 0.0 <= ph_ui <= 14.0
+    tds_valid = 0.0 <= tds_ui <= 52000.0
+    turbidity_valid = 0.0 <= turbidity_ui <= 10.0
+
+    if not (ph_valid and tds_valid and turbidity_valid):
+        print("[DEBUG] Manual prediction: Input values out of valid range")
+        potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
+    elif ph_ui <= 3 or ph_ui >= 12 or turbidity_ui > 5:
+        print("[DEBUG] Manual prediction: Failed quality checks")
+        potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
+    else:
+        print("[DEBUG] Manual prediction: Passed quality checks, running ANN")
+        potability, prob_potable, prob_unsafe = run_prediction(
+            ann_model, scaler, ph_ui, tds_ui, turbidity_ui
+        )
 
     print(f"[DEBUG] Manual prediction result: {potability}")
     if potability == 1:
