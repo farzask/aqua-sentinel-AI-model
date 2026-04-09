@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import json
 from datetime import datetime
 
 import firebase_admin
@@ -27,7 +28,9 @@ SCALER_FILE = 'scaler.pkl'
 def init_firebase():
     try:
         if not firebase_admin._apps:
-            cred = credentials.Certificate(dict(st.secrets["firebase_service_account"]))
+            secret = st.secrets["firebase_service_account"]
+            cred_dict = json.loads(secret) if isinstance(secret, str) else json.loads(json.dumps(dict(secret)))
+            cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred, {
                 'databaseURL': 'https://aqua-sentinel-90685-default-rtdb.firebaseio.com/'
             })
