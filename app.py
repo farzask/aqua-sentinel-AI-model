@@ -96,11 +96,41 @@ if firebase_result is not True:
 
 ann_model, scaler = load_model()
 
+# ── Firebase SSE listener (runs once, updates shared store on data change) ────
+@st.cache_resource
+def setup_sensor_listener(_firebase_ready):
+    """Registers a Firebase SSE listener. Fires only when sensor data changes."""
+    store = {"data": None, "last_updated": None, "error": None}
+
+    if _firebase_ready is not True:
+        return store
+
+    def on_change(event):
+        try:
+            if isinstance(event.data, dict):
+                store["data"] = event.data
+                store["last_updated"] = datetime.now()
+                store["error"] = None
+                print(f"[DEBUG] Firebase pushed new data: {event.data}")
+            elif event.data is None:
+                store["data"] = None
+        except Exception as e:
+            store["error"] = str(e)
+            print(f"[DEBUG] Listener error: {e}")
+
+    try:
+        db.reference('sensors').listen(on_change)
+    except Exception as e:
+        store["error"] = str(e)
+
+    return store
+
+
 # ── Section 1: Live Firebase sensor display ──────────────────────────────────
 st.header("Live Sensor Prediction")
 
-# Auto-refresh every 3 seconds — on each rerun we read Firebase directly
-st_autorefresh(interval=3000, key="firebase_autorefresh")
+# Light poll just to re-render when listener has pushed new data (no Firebase call)
+st_autorefresh(interval=1000, key="ui_refresh")
 
 if st.button("Refresh"):
     st.rerun()
@@ -108,9 +138,12 @@ if st.button("Refresh"):
 if firebase_result is not True:
     st.error("Firebase not connected. Cannot fetch sensor data.")
 else:
-    try:
-        data = db.reference('sensors').get()
-        print(f"[DEBUG] Fetched from Firebase: {data}")
+    sensor_store = setup_sensor_listener(firebase_result)
+
+    if sensor_store["error"]:
+        st.error(f"Listener error: {sensor_store['error']}")
+    else:
+        data = sensor_store["data"]
 
         if not data or not isinstance(data, dict):
             st.info("Waiting for sensor data from Firebase…")
@@ -156,11 +189,8 @@ else:
                 else:
                     st.error("Water is NOT POTABLE (Unsafe)")
 
-                st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-    except Exception as e:
-        st.error(f"Error reading from Firebase: {e}")
-        print(f"[DEBUG] Firebase read error: {e}")
+                if sensor_store["last_updated"]:
+                    st.caption(f"Last updated: {sensor_store['last_updated'].strftime('%Y-%m-%d %H:%M:%S')}")
 
 st.divider()
 
