@@ -156,8 +156,6 @@ else:
                 else:
                     st.error("Water is NOT POTABLE (Unsafe)  —  `sensors/potability` set to **0**")
 
-                st.write(f"**Probability Safe:** {prob_potable:.2%}")
-                st.write(f"**Probability Unsafe:** {prob_unsafe:.2%}")
                 st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     except Exception as e:
@@ -193,5 +191,4 @@ if submitted:
         st.success("Water is POTABLE (Safe to drink)")
     else:
         st.error("Water is NOT POTABLE (Unsafe)")
-    st.write(f"**Probability Safe:** {prob_potable:.2%}")
-    st.write(f"**Probability Unsafe:** {prob_unsafe:.2%}")
+
