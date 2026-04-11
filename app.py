@@ -97,7 +97,7 @@ if firebase_result is not True:
 ann_model, scaler = load_model()
 
 # ── Section 1: Live Firebase sensor display ──────────────────────────────────
-st.header("Live Sensor Prediction (Firebase)")
+st.header("Live Sensor Prediction")
 
 # Auto-refresh every 3 seconds — on each rerun we read Firebase directly
 st_autorefresh(interval=3000, key="firebase_autorefresh")
@@ -152,9 +152,9 @@ else:
                     st.warning(f"Could not write potability to Firebase: {e}")
 
                 if potability == 1:
-                    st.success("Water is POTABLE (Safe to drink)  —  `sensors/potability` set to **1**")
+                    st.success("Water is POTABLE (Safe to drink)")
                 else:
-                    st.error("Water is NOT POTABLE (Unsafe)  —  `sensors/potability` set to **0**")
+                    st.error("Water is NOT POTABLE (Unsafe)")
 
                 st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -165,7 +165,7 @@ else:
 st.divider()
 
 # ── Section 2: Manual UI prediction (not saved to Firebase) ──────────────────
-st.header("Manual Prediction (UI only)")
+st.header("Manual Prediction")
 
 with st.form("prediction_form"):
     ph_ui = st.number_input("pH", min_value=0.0, max_value=14.0, value=7.0, step=0.01)
@@ -187,8 +187,17 @@ if submitted:
             ann_model, scaler, ph_ui, tds_ui, turbidity_ui
         )
 
-    if potability == 1:
-        st.success("Water is POTABLE (Safe to drink)")
+    st.session_state["manual_result"] = potability
+    st.session_state["manual_result_time"] = datetime.now()
+
+if "manual_result" in st.session_state:
+    elapsed = (datetime.now() - st.session_state["manual_result_time"]).total_seconds()
+    if elapsed <= 120:
+        if st.session_state["manual_result"] == 1:
+            st.success("Water is POTABLE (Safe to drink)")
+        else:
+            st.error("Water is NOT POTABLE (Unsafe)")
     else:
-        st.error("Water is NOT POTABLE (Unsafe)")
+        del st.session_state["manual_result"]
+        del st.session_state["manual_result_time"]
 
