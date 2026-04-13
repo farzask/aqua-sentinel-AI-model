@@ -15,6 +15,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import accuracy_score
+from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.neural_network import MLPClassifier
 
 # Model expects ['ph', 'Solids', 'Turbidity']; Firebase uses 'tds' for Solids
@@ -28,7 +29,8 @@ SCALER_FILE = 'scaler.pkl'
 def init_firebase():
     try:
         if not firebase_admin._apps:
-            secret = st.secrets["firebase_service_account"]
+            # secret = st.secrets["firebase_service_account"]
+            secret = st.secrets["firebase"]
             cred_dict = json.loads(secret) if isinstance(secret, str) else json.loads(json.dumps(dict(secret)))
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred, {
@@ -42,8 +44,10 @@ def init_firebase():
 # ── Model helpers ────────────────────────────────────────────────────────────
 def train_and_save_model():
     df = pd.read_csv('dataset.csv')
+
+    # Impute NaN across all used features, not just ph
     imputer = SimpleImputer(strategy='mean')
-    df['ph'] = imputer.fit_transform(df[['ph']])
+    df[features] = imputer.fit_transform(df[features])
 
     X = df[features]
     y = df['Potability']
@@ -61,7 +65,10 @@ def train_and_save_model():
         max_iter=500,
         random_state=42
     )
-    ann_model.fit(X_train_scaled, y_train)
+
+    # Balance classes so the model doesn't bias toward NOT POTABLE
+    sample_weights = compute_sample_weight('balanced', y_train)
+    ann_model.fit(X_train_scaled, y_train, sample_weight=sample_weights)
 
     y_pred = ann_model.predict(X_test_scaled)
     acc = accuracy_score(y_test, y_pred)
@@ -84,6 +91,7 @@ def run_prediction(ann_model, scaler, ph, tds, turbidity):
     input_scaled = scaler.transform(input_data)
     prediction = int(ann_model.predict(input_scaled)[0])
     probability = ann_model.predict_proba(input_scaled)[0]
+    print(f"[DEBUG MODEL] Raw model prediction: {prediction}, prob_unsafe={probability[0]:.4f}, prob_potable={probability[1]:.4f}")
     return prediction, float(probability[1]), float(probability[0])
 
 
@@ -105,15 +113,40 @@ def setup_sensor_listener(_firebase_ready):
     if _firebase_ready is not True:
         return store
 
+    # Initial fetch so the UI has data immediately before the SSE connection is established
+    try:
+        initial = db.reference('sensors').get()
+        if isinstance(initial, dict):
+            store["data"] = initial
+            store["last_updated"] = datetime.now()
+            print(f"[DEBUG] Initial fetch: {initial}")
+    except Exception as e:
+        store["error"] = str(e)
+        return store
+
     def on_change(event):
         try:
-            if isinstance(event.data, dict):
+            if event.data is None:
+                store["data"] = None
+            elif isinstance(event.data, dict):
+                # Full node update (e.g. initial push or whole sensors node replaced)
                 store["data"] = event.data
                 store["last_updated"] = datetime.now()
                 store["error"] = None
-                print(f"[DEBUG] Firebase pushed new data: {event.data}")
-            elif event.data is None:
-                store["data"] = None
+                print(f"[DEBUG] Full update: {event.data}")
+            else:
+                # Partial update — a single field changed (e.g. /ph -> 7.2)
+                field = event.path.lstrip('/')
+                # Ignore writes we made ourselves to avoid a feedback loop
+                if field == 'potability':
+                    return
+                if store["data"] is None:
+                    store["data"] = {}
+                if field:
+                    store["data"][field] = event.data
+                store["last_updated"] = datetime.now()
+                store["error"] = None
+                print(f"[DEBUG] Partial update: {field} = {event.data}")
         except Exception as e:
             store["error"] = str(e)
             print(f"[DEBUG] Listener error: {e}")
@@ -165,24 +198,32 @@ else:
                 col3.metric("Turbidity (NTU)", f"{turbidity:.2f}")
 
                 # Validation + prediction
+                print(f"[DEBUG LIVE] Input values: ph={ph}, tds={tds}, turbidity={turbidity}")
                 ph_valid = 0.0 <= ph <= 14.0
                 tds_valid = 0.0 <= tds <= 52000.0
                 turbidity_valid = 0.0 <= turbidity <= 10.0
+                print(f"[DEBUG LIVE] Range checks: ph_valid={ph_valid} (must be 0-14), tds_valid={tds_valid} (must be 0-52000), turbidity_valid={turbidity_valid} (must be 0-10)")
 
                 if not (ph_valid and tds_valid and turbidity_valid):
                     potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
-                elif ph <= 3 or ph >= 12 or turbidity > 5:
-                    potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
+                    print(f"[DEBUG LIVE] Validation failed: ph_valid={ph_valid}, tds_valid={tds_valid}, turbidity_valid={turbidity_valid} -> potability={potability}")
                 else:
+                    print(f"[DEBUG LIVE] ✓ Passed validation, calling model...")
                     potability, prob_potable, prob_unsafe = run_prediction(
                         ann_model, scaler, ph, tds, turbidity
                     )
+                    print(f"[DEBUG LIVE] ✓ Model returned: potability={potability}, prob_potable={prob_potable:.4f}, prob_unsafe={prob_unsafe:.4f}")
 
-                # Write potability back to Firebase
-                try:
-                    db.reference('sensors/potability').set(potability)
-                except Exception as e:
-                    st.warning(f"Could not write potability to Firebase: {e}")
+                # Write potability back to Firebase if it differs from what Firebase currently holds
+                stored_potability = sensor_store["data"].get("potability")
+                if stored_potability != potability:
+                    try:
+                        db.reference('sensors/potability').set(potability)
+                        sensor_store["data"]["potability"] = potability
+                        print(f"[DEBUG FIREBASE] Wrote potability={potability} to Firebase (was {stored_potability})")
+                    except Exception as e:
+                        st.warning(f"Could not write potability to Firebase: {e}")
+                        print(f"[DEBUG FIREBASE] Error writing to Firebase: {e}")
 
                 if potability == 1:
                     st.success("Water is POTABLE (Safe to drink)")
@@ -210,24 +251,32 @@ if submitted:
 
     if not (ph_valid and tds_valid and turbidity_valid):
         potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
-    elif ph_ui <= 3 or ph_ui >= 12 or turbidity_ui > 5:
-        potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
+        print(f"[DEBUG MANUAL] Validation failed: ph_valid={ph_valid}, tds_valid={tds_valid}, turbidity_valid={turbidity_valid} -> potability={potability}")
+        st.warning("Input values out of realistic range. Please check and try again.")
     else:
+        print(f"[DEBUG MANUAL] ✓ Passed pre-checks, calling model...")
         potability, prob_potable, prob_unsafe = run_prediction(
             ann_model, scaler, ph_ui, tds_ui, turbidity_ui
         )
+        print(f"[DEBUG MANUAL] Prediction: ph={ph_ui}, tds={tds_ui}, turbidity={turbidity_ui} -> potability={potability}, prob_potable={prob_potable}, prob_unsafe={prob_unsafe}")
 
     st.session_state["manual_result"] = potability
     st.session_state["manual_result_time"] = datetime.now()
+    print(f"[DEBUG MANUAL] Stored result: potability={potability}, timestamp={st.session_state['manual_result_time']}")
 
 if "manual_result" in st.session_state:
     elapsed = (datetime.now() - st.session_state["manual_result_time"]).total_seconds()
+    print(f"[DEBUG DISPLAY] Manual result exists: potability={st.session_state['manual_result']}, elapsed={elapsed:.2f}s")
+    print(f"[DEBUG DISPLAY] Potability = {potability}, prob_potable={prob_potable:.4f}, prob_unsafe={prob_unsafe:.4f} {elapsed=:.2f}s")
     if elapsed <= 120:
-        if st.session_state["manual_result"] == 1:
+        if potability == 1:
+            print(f"[DEBUG DISPLAY] Showing POTABLE result")
             st.success("Water is POTABLE (Safe to drink)")
         else:
+            print(f"[DEBUG DISPLAY] Showing NOT POTABLE result")
             st.error("Water is NOT POTABLE (Unsafe)")
     else:
+        print(f"[DEBUG DISPLAY] Result expired (elapsed > 120s), clearing")
         del st.session_state["manual_result"]
         del st.session_state["manual_result_time"]
 
