@@ -207,6 +207,17 @@ else:
                 if not (ph_valid and tds_valid and turbidity_valid):
                     potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
                     print(f"[DEBUG LIVE] Validation failed: ph_valid={ph_valid}, tds_valid={tds_valid}, turbidity_valid={turbidity_valid} -> potability={potability}")
+                elif ph < 4 or ph > 12 or turbidity > 5:
+                    # Automatic fail for extreme conditions
+                    potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
+                    reason = []
+                    if ph < 4:
+                        reason.append("pH too low (<4)")
+                    if ph > 12:
+                        reason.append("pH too high (>12)")
+                    if turbidity > 5:
+                        reason.append("Turbidity too high (>5)")
+                    print(f"[DEBUG LIVE] Automatic fail: {', '.join(reason)}")
                 else:
                     print(f"[DEBUG LIVE] ✓ Passed validation, calling model...")
                     potability, prob_potable, prob_unsafe = run_prediction(
@@ -253,6 +264,17 @@ if submitted:
         potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
         print(f"[DEBUG MANUAL] Validation failed: ph_valid={ph_valid}, tds_valid={tds_valid}, turbidity_valid={turbidity_valid} -> potability={potability}")
         st.warning("Input values out of realistic range. Please check and try again.")
+    elif ph_ui < 4 or ph_ui > 12 or turbidity_ui > 5:
+        # Automatic fail for extreme conditions
+        potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
+        reason = []
+        if ph_ui < 4:
+            reason.append("pH too low (<4)")
+        if ph_ui > 12:
+            reason.append("pH too high (>12)")
+        if turbidity_ui > 5:
+            reason.append("Turbidity too high (>5)")
+        print(f"[DEBUG MANUAL] Automatic fail: {', '.join(reason)}")
     else:
         print(f"[DEBUG MANUAL] ✓ Passed pre-checks, calling model...")
         potability, prob_potable, prob_unsafe = run_prediction(
