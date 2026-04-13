@@ -29,8 +29,8 @@ SCALER_FILE = 'scaler.pkl'
 def init_firebase():
     try:
         if not firebase_admin._apps:
-            # secret = st.secrets["firebase_service_account"]
-            secret = st.secrets["firebase"]
+            secret = st.secrets["firebase_service_account"]
+            # secret = st.secrets["firebase"]
             cred_dict = json.loads(secret) if isinstance(secret, str) else json.loads(json.dumps(dict(secret)))
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred, {
