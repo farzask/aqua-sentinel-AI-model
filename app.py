@@ -4,6 +4,7 @@ import joblib
 import os
 import json
 from datetime import datetime
+from typing import Any
 
 import firebase_admin
 from firebase_admin import credentials, db
@@ -68,7 +69,7 @@ def train_and_save_model():
 
     # Balance classes so the model doesn't bias toward NOT POTABLE
     sample_weights = compute_sample_weight('balanced', y_train)
-    ann_model.fit(X_train_scaled, y_train, sample_weight=sample_weights)
+    ann_model.fit(X_train_scaled, y_train, sample_weight=sample_weights)  # type: ignore[call-arg]
 
     y_pred = ann_model.predict(X_test_scaled)
     acc = accuracy_score(y_test, y_pred)
@@ -108,7 +109,7 @@ ann_model, scaler = load_model()
 @st.cache_resource
 def setup_sensor_listener(_firebase_ready):
     """Registers a Firebase SSE listener. Fires only when sensor data changes."""
-    store = {"data": None, "last_updated": None, "error": None}
+    store: dict[str, Any] = {"data": None, "last_updated": None, "error": None}
 
     if _firebase_ready is not True:
         return store
@@ -207,7 +208,7 @@ else:
                 if not (ph_valid and tds_valid and turbidity_valid):
                     potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
                     print(f"[DEBUG LIVE] Validation failed: ph_valid={ph_valid}, tds_valid={tds_valid}, turbidity_valid={turbidity_valid} -> potability={potability}")
-                elif ph < 4 or ph > 12 or turbidity > 5:
+                elif ph < 4 or ph > 12 or turbidity > 5 or tds == 0:
                     # Automatic fail for extreme conditions
                     potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
                     reason = []
@@ -217,6 +218,8 @@ else:
                         reason.append("pH too high (>12)")
                     if turbidity > 5:
                         reason.append("Turbidity too high (>5)")
+                    if tds == 0:
+                        reason.append("TDS is 0 (not drinkable)")
                     print(f"[DEBUG LIVE] Automatic fail: {', '.join(reason)}")
                 else:
                     print(f"[DEBUG LIVE] ✓ Passed validation, calling model...")
@@ -264,7 +267,7 @@ if submitted:
         potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
         print(f"[DEBUG MANUAL] Validation failed: ph_valid={ph_valid}, tds_valid={tds_valid}, turbidity_valid={turbidity_valid} -> potability={potability}")
         st.warning("Input values out of realistic range. Please check and try again.")
-    elif ph_ui < 4 or ph_ui > 12 or turbidity_ui > 5:
+    elif ph_ui < 4 or ph_ui > 12 or turbidity_ui > 5 or tds_ui == 0:
         # Automatic fail for extreme conditions
         potability, prob_potable, prob_unsafe = 0, 0.0, 1.0
         reason = []
@@ -274,6 +277,8 @@ if submitted:
             reason.append("pH too high (>12)")
         if turbidity_ui > 5:
             reason.append("Turbidity too high (>5)")
+        if tds_ui == 0:
+            reason.append("TDS is 0 (not drinkable)")
         print(f"[DEBUG MANUAL] Automatic fail: {', '.join(reason)}")
     else:
         print(f"[DEBUG MANUAL] ✓ Passed pre-checks, calling model...")
